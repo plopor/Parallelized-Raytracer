@@ -1,5 +1,7 @@
 # Parallelized Raytracer
 
+## Benchmarking graphs and analysis of results can be found in the rt/benchmark directory.
+
 The input command for this project is as follows:
 
 go run main.go numthreads steal skew
