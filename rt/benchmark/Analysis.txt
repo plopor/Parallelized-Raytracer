@@ -1,0 +1,57 @@
+My project attempts to use BSP to parallelize the workflow of performing physically based raytracing on a 3D and then applying a Gaussian blur 
+for anti-aliasing to produce a final image that has smoother boundaries. Raytracing in general is a very easily and fully parallelizable problem
+as each individual ray casted through the image pixel can be done completely independently of each other. Thus, to follow the BSP pattern, by applying
+a Gaussian kernel filter to the resulting raytraced scene, we get a problem that has 2 supersteps. In terms of the problem itself, this workflow 
+not only achieve less artifacting on edge boundaries, but anti-alisasing this way is also a very common strategy used in practice.
+
+Physically based raytracing is done by casting ray vectors from a viewer's eye point in 3D space through a plane that represents the image on which the 
+color resulting from this ray is projected as a pixel. Each ray then determines its projecting color based on the intersection with some object that
+is defined in the scene. It is physically based because this color is also dependent on physical simulations including the angle of the incoming light
+as well as the angle if the viewer, and my implementation uses a simplified version of the Phong illumination model. Since light reflects off surfaces,
+to emulate a reflective property, each intersection will then cast a new reflected ray and apply a weighted average with the illumination calculated 
+at the current intersection together with the resursive result of the reflected ray. The purpose of anti-aliasing at the end is to smooth out the crunchy
+edges, which is more noticeable when there are a lot of detailed linework in one place or if the image resolution is low. The Gaussian kernel is perfect
+as it applies the weight of neighboring pixels based on its distance away from the center. This part is technically not physically based, as such an
+anti-aliasing model might rely on averaging multiple rays shot through the same pixel (with some offset).
+
+The parallel solution for raytracing is relatively obvious as each pixel is calculated on its own. As a result, each individual task is to compute the
+pixel color and is represented by a 2D coordinate that a ray vector is cast through. Then, to introduce BSP into the problem, as described before, 
+applying a second superstep of a Gaussian blur to the final image required that the first step of raytracing had to have finished fully beforehand. Since
+the problem of raytracing is technically fully parallelizable, the throughput should be maximized when each thread has an equivalent amount of work to do.
+Then, when it comes to work-balancing, it is not extremely applicable to this problem as threads will finish the same amount of work around the same time.
+To force the issue, the option to skew the work between threads can show the effect of work-stealing more clearly.
+
+The parallelization of the problem was not the issue as it is embarrassingly parallel. The problem then was to modify this problem into one that lends itself
+more naturally to BSP and work-stealing. The result of that was to add the superstep of anti-aliasing as well as skewing the threads' tasks. Then, the
+difficulty came in the form of implementing barriers, work-stealing DEQueues, and the balancing thread function. Since I am very interested in graphics,
+I was most excited to learn about the ways that I can increase the performance of such a pivotal aspect of the field and experiment with less mainstream
+methods of parallelizing it.
+
+In this analysis, I will be using the experiment 40039. The speedup graph for which can be found in this directory. Here, we see that when the work is not
+skewed, e.g each thread has the same approximate number of tasks, work-stealing performs much worse at all numthreads than normal parallelism. This makes
+sense as there is no real stealing to be done and the extra overhead of having to occasionally check and compare queue sizes slows down the system.
+On the other hand, when the work is skewed and some threads have 3x the work as others, work-stealing performs better than normal parallelism at lower
+thread counts (2 and 4 threads). This might be because the expensive operation of balancing the thread counts happens less frequently, and the overall
+benefit of then proceeding with balanced threads will then outweight the occasional checking of queue sizes. The fact that normal parallelism still 
+performs better at higher thread counts can be explained by a couple factors. First of all, more threads means that more balancing operations has to take
+place to even out all the threads. Secondly, more threads also means there is a higher frequency of threads checking out each other's queue sizes. This seems
+to be reflected in the graphs for both work-stealing experiments tapering off in their speedup increases much more quickly when compared to the non work-
+stealing ones.
+
+The hotspots for the problem of raytracing and kernel convolution are the entirety of the problem since they are both fully parallelizable as discussed.
+Then, the bottlenecks really depend on the barrier between these two supersteps. This then depends on the overall balance of work that each thread has to do.
+Which is then determined by the work-dividing algorithm beforehand as well as the work-stealing refinement implementation during the parallelism. There also
+exists bottlenecks in the preprocessing of the scene representation as well as the initial dividing of the work, but they are negligible compared to the
+problem itself. As discussed extensively above, I believe I was able to fully parallelize the embarrassingly parallel problem. And In the case of an 
+unbalanced initial queue distribution, the algorithm makes the attempt to rebalance through work-stealing to mitigate wall time between supersteps.
+
+Ultimately, I believe that the limitation to speedups for the non work-stealing implementation lies heavily within the communications and synchronization
+overhead. This can be seen by both graphs for the non work-stealing experiments having a continunous upward trend showing no signs of asymptotic behaviour.
+This implies that the factors witholding this method of parallelism from achieving perfect speedup is relatively constant across different numbers of threads.
+However, for the work-stealing refinement, I believe that the frequent comparisons of queue sizes across the threads, which is done sequentially through
+the atomic load operation resulted in a limitation to the speedup that would scale with the number of threads that are doing this. This result can likewise
+be seen in the graphs for these experiments asymptotically tapering off quite early at around 4-6 threads
+
+Finally, I believe this experiment shows that both work-stealing and non work-stealing parallel implementation have situations where they are valuable and
+outperform each other. As a final addition to the comparisons made above, it is of no surprise that every single implementation of parallelism achieves a 
+significant speedup over the sequential implementation.

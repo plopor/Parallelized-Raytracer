@@ -1,0 +1,4 @@
+Unable to init server: Could not connect: Connection refused
+Unable to init server: Could not connect: Connection refused
+
+(graph-script.py:1977402): Gdk-CRITICAL **: 05:55:42.296: gdk_cursor_new_for_display: assertion 'GDK_IS_DISPLAY (display)' failed
